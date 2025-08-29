@@ -2,3 +2,4 @@ streamlit
 huggingface-hub
 python-docx
 PyPDF2
+dotenv
