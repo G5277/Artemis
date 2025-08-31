@@ -3,8 +3,6 @@ import streamlit as st
 import os, json, docx, PyPDF2, re
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
-from prompt import build_prompt
-from schema import STRICT_SCHEMA
 
 # -------------------
 # Load environment variables
@@ -64,6 +62,83 @@ def truncate_text(text: str, max_chars: int = 4000) -> str:
     return text[:max_chars] + ("..." if len(text) > max_chars else "")
 
 # -------------------
+# Enhanced JSON Schema for Resume Suggestions
+# -------------------
+STRICT_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "artemis_resume_output",
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "ResumeSuggestions": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "Projects": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "current": {"type": "string"},
+                                    "change": {
+                                        "type": "string",
+                                        "maxLength": 120,
+                                        "description": "Rewrite aligned with JD (≤20 words)."
+                                    },
+                                    "rationale": {
+                                        "type": "string",
+                                        "maxLength": 60,
+                                        "description": "Why this improves ATS/clarity/impact."
+                                    },
+                                    "jd_alignment": {
+                                        "type": "string",
+                                        "maxLength": 80,
+                                        "description": "Which JD skill/requirement this matches."
+                                    }
+                                },
+                                "required": ["current", "change", "rationale", "jd_alignment"]
+                            }
+                        },
+                        "Experience": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "current": {"type": "string"},
+                                    "change": {
+                                        "type": "string",
+                                        "maxLength": 120,
+                                        "description": "Rewrite aligned with JD (≤20 words)."
+                                    },
+                                    "rationale": {
+                                        "type": "string",
+                                        "maxLength": 60,
+                                        "description": "Why this improves ATS/clarity/impact."
+                                    },
+                                    "jd_alignment": {
+                                        "type": "string",
+                                        "maxLength": 80,
+                                        "description": "Which JD skill/requirement this matches."
+                                    }
+                                },
+                                "required": ["current", "change", "rationale", "jd_alignment"]
+                            }
+                        }
+                    },
+                    "required": ["Projects", "Experience"]
+                },
+                "CoverLetter": {"type": "string"},
+                "Summary": {"type": "string"}
+            },
+            "required": ["ResumeSuggestions", "CoverLetter", "Summary"]
+        }
+    }
+}
+
+
+# -------------------
 # Generate Suggestions
 # -------------------
 if st.button("Generate Suggestions"):
@@ -74,9 +149,70 @@ if st.button("Generate Suggestions"):
     else:
         with st.spinner("Generating suggestions online..."):
             print("🔹 Building prompt...")
-            prompt = build_prompt(company_name, job_description, resume_text, truncate_text)
 
+            # -------------------
+            # Prompt Template
+            # -------------------
+            prompt = f"""
+You are An intelligent AI Resume assistant.
+Your task is to improve the candidate's resume and provide a tailored cover letter + summary.
 
+**Rules for ResumeSuggestions**:
+- Output ONLY JSON (no prose).
+- For each resume line:
+  1. Keep the "current" text exactly as-is.
+  2. Rewrite it in "change" so it highlights skills, tools, and metrics that are **directly relevant to the Job Description**.
+- If something is irrelevant to the JD, suggest removing it ("change": "Remove - not aligned with JD").
+- Always include "rationale" (≤60 chars) explaining why the change improves ATS/clarity/impact.
+- Always include "jd_alignment" explaining which JD skill/requirement this change satisfies.
+- Use strong action verbs, metrics, and ATS-friendly keywords.
+- At least 3 tailored suggestions each for Projects and Experience (if content exists).
+
+**Rules for CoverLetter**:
+- Write a one-page, professional cover letter tailored to the company and role.
+- Use a formal, confident, yet approachable tone (avoid clichés).
+- Show clear alignment with the JD, referencing candidate’s relevant projects/experience.
+- Highlight achievements with metrics and scope.
+- Structure:
+  1. Greeting + intent.
+  2. How candidate skills/experience align with the JD.
+  3. Why they want to join this company.
+  4. Closing with call-to-action.
+
+**Rules for Summary**:
+- Write 1–2 lines maximum.
+- Explain the overall rationale of the resume changes.
+- Focus on *alignment with the JD*.
+
+**Context**:
+- Company: {company_name}
+- Job Description (this must guide all tailoring): {truncate_text(job_description)}
+- Candidate Resume: {truncate_text(resume_text)}
+
+**Final Output Schema (STRICT)**:
+{{
+  "ResumeSuggestions": {{
+    "Projects": [
+      {{
+        "current": "string",
+        "change": "string (<20 words)",
+        "rationale": "string (<60 chars)",
+        "jd_alignment": "string (<80 chars)"
+      }}, ...
+    ],
+    "Experience": [
+      {{
+        "current": "string",
+        "change": "string (<20 words)",
+        "rationale": "string (<60 chars)",
+        "jd_alignment": "string (<80 chars)"
+      }}, ...
+    ]
+  }},
+  "CoverLetter": "string",
+  "Summary": "string"
+}}
+"""
 
 
             parsed_output = None
@@ -167,15 +303,12 @@ if st.button("Generate Suggestions"):
                             current = item.get("current", "").strip()
                             change = item.get("change", "").strip()
                             rationale = item.get("rationale", "").strip()
-                            jd_alignment = item.get("jd_alignment", "").strip()
                             if current:
                                 st.write(f"➡️ **{current}**")
                             if change:
                                 st.write(f"🔹 **Change:** {change}")
                             if rationale:
                                 st.caption(f"💡 {rationale}")
-                            if jd_alignment:
-                                st.caption(f"📌 JD Alignment: {jd_alignment}")
                             st.markdown("---")
 
                     rs = parsed_output.get("ResumeSuggestions", {})
